@@ -314,8 +314,8 @@ class ChipTimingScraper:
         
         return has_content and (has_identifier or has_result or has_time_format)
     
-    def scrape_results(self) -> List[Dict]:
-        """Enhanced main scraping method."""
+    def scrape_results(self, max_pages: Optional[int] = None) -> List[Dict]:
+        """Enhanced main scraping method with comprehensive pagination."""
         logger.info(f"Scraping results from {self.base_url}")
         
         # Try Selenium first if available
@@ -331,22 +331,41 @@ class ChipTimingScraper:
         
         results = []
         
-        # Try multiple extraction methods
-        extraction_methods = [
-            ("table extraction", self.extract_table_data),
-            ("structured data", self.extract_structured_data),
-        ]
+        # First, get results from the initial page
+        initial_results = self.extract_table_data(soup)
+        if initial_results:
+            logger.info(f"Found {len(initial_results)} results on initial page")
+            results.extend(initial_results)
         
-        for method_name, method in extraction_methods:
-            logger.info(f"Trying {method_name}")
-            method_results = method(soup)
-            if method_results:
-                logger.info(f"Found {len(method_results)} results using {method_name}")
-                results.extend(method_results)
-            else:
-                logger.info(f"No results from {method_name}")
+        # Check if there are multiple pages
+        total_pages = self._get_total_pages(soup)
         
-        # Try API endpoints as fallback
+        if total_pages > 1:
+            if max_pages:
+                total_pages = min(total_pages, max_pages)
+                logger.info(f"Limiting to {max_pages} pages (out of {self._get_total_pages(soup)} total)")
+            
+            logger.info(f"Detected {total_pages} pages. Starting comprehensive pagination...")
+            
+            # Handle pagination starting from page 2 (since we already got page 1)
+            if total_pages > 1:
+                paginated_results = self._handle_pagination_from_page_2(soup, total_pages)
+                results.extend(paginated_results)
+        
+        # Try other extraction methods if still no results
+        if not results:
+            extraction_methods = [
+                ("structured data", self.extract_structured_data),
+            ]
+            
+            for method_name, method in extraction_methods:
+                logger.info(f"Trying {method_name}")
+                method_results = method(soup)
+                if method_results:
+                    logger.info(f"Found {len(method_results)} results using {method_name}")
+                    results.extend(method_results)
+        
+        # Try API endpoints as last resort
         if not results:
             logger.info("Trying to discover API endpoints")
             endpoints = self.discover_api_endpoints(soup)
@@ -356,15 +375,30 @@ class ChipTimingScraper:
         
         # Remove duplicates
         if results:
-            # Use a simple deduplication based on string representation
             seen = set()
             unique_results = []
             for result in results:
-                result_str = str(sorted(result.items()))
-                if result_str not in seen:
-                    seen.add(result_str)
+                # Create a key from important fields to detect duplicates
+                key_fields = ['name', 'bib_number', 'finish_time', 'position']
+                key_values = []
+                
+                for field in key_fields:
+                    value = None
+                    # Try different possible column names
+                    for col in result.keys():
+                        if field in col.lower() or col.lower() in field:
+                            value = result[col]
+                            break
+                    key_values.append(str(value) if value else "")
+                
+                result_key = "|".join(key_values)
+                
+                if result_key not in seen:
+                    seen.add(result_key)
                     unique_results.append(result)
+            
             results = unique_results
+            logger.info(f"After deduplication: {len(results)} unique results")
         
         logger.info(f"Total extracted results: {len(results)}")
         return results
@@ -495,6 +529,7 @@ def main():
     parser.add_argument('-o', '--output', default='race_results.csv', help='Output CSV filename')
     parser.add_argument('-d', '--delay', type=float, default=1.0, help='Delay between requests (seconds)')
     parser.add_argument('--no-selenium', action='store_true', help='Disable Selenium (use requests only)')
+    parser.add_argument('--max-pages', type=int, help='Maximum number of pages to scrape (default: all pages)')
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose logging')
     
     args = parser.parse_args()
@@ -510,14 +545,38 @@ def main():
     if event_info:
         logger.info(f"Event: {event_info}")
     
+    # Add time tracking
+    start_time = time.time()
+    
     # Scrape results
-    results = scraper.scrape_results()
+    results = scraper.scrape_results(max_pages=args.max_pages)
+    
+    end_time = time.time()
+    duration = end_time - start_time
     
     if results:
         # Save to CSV
         output_path = Path(args.output)
         scraper.save_to_csv(results, str(output_path))
-        print(f"\nOutput saved to: {output_path}")
+        
+        print(f"\n{'='*50}")
+        print(f"SCRAPING COMPLETE")
+        print(f"{'='*50}")
+        print(f"Total results: {len(results)}")
+        print(f"Time taken: {duration:.1f} seconds")
+        print(f"Average time per result: {duration/len(results):.3f} seconds")
+        print(f"Output saved to: {output_path}")
+        
+        # Show data quality summary
+        df = pd.DataFrame(results)
+        print(f"\nData Quality Summary:")
+        print(f"Columns: {list(df.columns)}")
+        print(f"Completeness:")
+        for col in df.columns:
+            non_empty = df[col].notna().sum()
+            percentage = (non_empty / len(df)) * 100
+            print(f"  {col}: {non_empty}/{len(df)} ({percentage:.1f}%)")
+        
     else:
         print("No results found.")
         print("\nTroubleshooting tips:")
@@ -525,6 +584,7 @@ def main():
         print("2. Install Selenium for JavaScript support: pip install selenium")
         print("3. Ensure Chrome browser is installed for Selenium")
         print("4. Try the --verbose flag for more detailed logging")
+        print("5. Test with a working URL from a past event first")
 
 
 if __name__ == "__main__":
