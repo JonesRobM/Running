@@ -1,0 +1,26 @@
+pos,bib_no,name,sex,category,10km,gun_time,chip_time,gender_pos,cat_pos,chip_pos,club
+1,27045,Jack Cummings,Male,MS,0:32:29,1:08:36,1:08:36,1,1,1,
+2,24350,Ritchie Gardiner,Male,MS,0:32:38,1:09:06,1:09:04,2,2,2,Leeds University AC and CC Club
+3,25219,Andrew Rolland,Male,MS,0:33:47,1:11:16,1:11:16,3,3,3,Hyde Park Harriers
+4,26930,Ryan Llewellyn,Male,MS,0:34:38,1:12:29,1:12:29,4,4,4,Kirkstall Harriers
+5,26567,William DArcy,Male,MS,0:34:38,1:12:46,1:12:46,5,5,5,
+6,26334,Jim Gordon,Male,MS,0:34:45,1:13:01,1:12:59,6,6,6,Clapham Chasers
+7,26633,Gary Briscoe,Male,MS,0:35:47,1:14:19,1:14:19,7,7,7,Barnsley Athletic Club
+8,24658,Chris Fishlock,Male,M40,0:36:08,1:14:43,1:14:42,8,1,8,Leeds City Athletic Club
+9,25729,Joshua Bird,Male,MS,0:35:02,1:14:48,1:14:48,9,8,9,Barnsley Athletic Club
+10,27049,Eddie Knight,Male,MS,0:35:24,1:14:58,1:14:57,10,9,10,
+11,26845,Edward Cheseldine,Male,MS,0:36:08,1:15:13,1:15:12,11,10,11,Valley Striders AC
+12,21969,Dexter Sparrow,Male,MS,0:36:09,1:16:01,1:16:01,12,11,12,Leeds City Athletic Club
+13,26958,Ravinder Panesar,Male,M40,0:36:08,1:16:59,1:16:57,13,2,14,Valley Striders AC
+14,23957,Sam Townson,Male,MS,0:36:24,1:17:35,1:16:26,14,12,13,Hyde Park Harriers
+15,26844,Boris Chan,Male,MS,0:37:05,1:17:59,1:17:57,15,13,15,None
+16,22879,Isaac Griffin,Male,MS,0:36:48,1:18:07,1:18:02,16,14,16,
+17,25258,Mike Burrett,Male,M40,0:36:30,1:18:16,1:18:16,17,3,17,Leeds City Athletic Club
+18,26637,Yee Nang Leung,Male,MS,0:37:04,1:18:41,1:18:38,18,15,19,
+19,26911,Rob Jennings,Male,MS,0:37:48,1:18:44,1:18:36,19,16,18,Pudsey Pacers RC
+20,25128,Kai Atkins,Male,MS,0:37:14,1:18:47,1:18:47,20,17,20,
+21,24879,Matt Weston,Male,MS,0:37:13,1:18:49,1:18:47,21,18,21,
+22,23573,Nathan Draper,Male,MS,0:38:12,1:19:08,1:19:07,22,19,24,
+23,26921,Christopher Knight,Male,MS,0:38:09,1:19:08,1:19:02,23,20,23,
+24,26867,Will Draper,Male,MS,0:38:13,1:19:09,1:19:09,24,21,25,
+25,22435,Richard Herrington,Male,M40,0:37:32,1:19:28,1:19:25,25,4,27,St Theresas A.C.
