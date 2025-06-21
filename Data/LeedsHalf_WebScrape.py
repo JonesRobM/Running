@@ -289,6 +289,31 @@ class ChipTimingScraper:
         text = re.sub(r'[^\w\s:.-]', '', text)  # Keep basic punctuation
         return text
     
+    def _get_total_pages(self, soup: BeautifulSoup) -> int:
+        """Extract total number of pages from pagination info."""
+        # Look for "Page X of Y" pattern
+        page_text = soup.get_text()
+        page_match = re.search(r'Page\s+\d+\s+of\s+(\d+)', page_text, re.IGNORECASE)
+        if page_match:
+            return int(page_match.group(1))
+        
+        # Look for pagination links
+        pagination_links = soup.find_all('a', href=True)
+        page_numbers = []
+        
+        for link in pagination_links:
+            href = link.get('href', '')
+            text = link.get_text(strip=True)
+            
+            # Extract page numbers from href or text
+            page_match = re.search(r'page[=:](\d+)', href)
+            if page_match:
+                page_numbers.append(int(page_match.group(1)))
+            elif text.isdigit():
+                page_numbers.append(int(text))
+        
+        return max(page_numbers) if page_numbers else 1
+    
     def _is_valid_result_row(self, row_data: Dict) -> bool:
         """Enhanced validation for result rows."""
         if not row_data:
