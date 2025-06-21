@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Enhanced webscraper for chip timing race results from chiptiming.co.uk
-Handles JavaScript-loaded content and multiple data formats.
+Handles JavaScript-loaded content and complete pagination.
 """
 
 import requests
@@ -36,14 +36,7 @@ class ChipTimingScraper:
     """Enhanced scraper for chip timing race results."""
     
     def __init__(self, base_url: str, delay: float = 1.0, use_selenium: bool = True):
-        """
-        Initialize scraper.
-        
-        Args:
-            base_url: Base URL of the race results page
-            delay: Delay between requests
-            use_selenium: Whether to use Selenium for JavaScript content
-        """
+        """Initialize scraper."""
         self.base_url = base_url
         self.delay = delay
         self.use_selenium = use_selenium and SELENIUM_AVAILABLE
@@ -87,10 +80,9 @@ class ChipTimingScraper:
         try:
             driver.get(url)
             
-            # Wait for results to load (look for common indicators)
+            # Wait for results to load
             wait = WebDriverWait(driver, 15)
             
-            # Try multiple selectors that might indicate loaded content
             selectors_to_try = [
                 "table",
                 ".result",
@@ -114,9 +106,8 @@ class ChipTimingScraper:
             
             if not content_loaded:
                 logger.info("No specific content selectors found, waiting for general page load")
-                time.sleep(5)  # Give extra time for any delayed loading
+                time.sleep(5)
             
-            # Get page source after JavaScript execution
             html = driver.page_source
             return BeautifulSoup(html, 'html.parser')
             
@@ -136,74 +127,10 @@ class ChipTimingScraper:
             logger.error(f"Failed to fetch {url}: {e}")
             return None
     
-    def discover_api_endpoints(self, soup: BeautifulSoup) -> List[str]:
-        """Try to discover AJAX/API endpoints for data."""
-        endpoints = []
-        
-        # Look for JavaScript files that might contain API calls
-        scripts = soup.find_all('script')
-        for script in scripts:
-            if script.string:
-                # Look for common API patterns
-                api_patterns = [
-                    r'fetch\([\'"]([^\'"]*/api/[^\'"]*)[\'"]',
-                    r'ajax\s*:\s*[\'"]([^\'"]*/[^\'"]*)[\'"]',
-                    r'url\s*:\s*[\'"]([^\'"]*/[^\'"]*(?:json|data)[^\'"]*)[\'"]',
-                    r'[\'"]([^\'"]*/results[^\'"]*)[\'"]'
-                ]
-                
-                for pattern in api_patterns:
-                    matches = re.findall(pattern, script.string)
-                    for match in matches:
-                        if not match.startswith('http'):
-                            match = urljoin(self.base_url, match)
-                        endpoints.append(match)
-        
-        return list(set(endpoints))  # Remove duplicates
-    
-    def try_api_endpoints(self, endpoints: List[str]) -> List[Dict]:
-        """Try discovered API endpoints."""
-        results = []
-        
-        for endpoint in endpoints:
-            try:
-                logger.info(f"Trying API endpoint: {endpoint}")
-                response = self.session.get(endpoint, timeout=10)
-                
-                if response.status_code == 200:
-                    try:
-                        data = response.json()
-                        if isinstance(data, list):
-                            results.extend(data)
-                        elif isinstance(data, dict) and 'results' in data:
-                            results.extend(data['results'])
-                        elif isinstance(data, dict) and 'data' in data:
-                            results.extend(data['data'])
-                    except json.JSONDecodeError:
-                        # Try to parse as CSV or other format
-                        content = response.text
-                        if ',' in content and '\n' in content:
-                            lines = content.strip().split('\n')
-                            if len(lines) > 1:
-                                headers = lines[0].split(',')
-                                for line in lines[1:]:
-                                    values = line.split(',')
-                                    if len(values) == len(headers):
-                                        results.append(dict(zip(headers, values)))
-                
-                time.sleep(self.delay)
-                
-            except Exception as e:
-                logger.debug(f"API endpoint {endpoint} failed: {e}")
-                continue
-        
-        return results
-    
     def extract_table_data(self, soup: BeautifulSoup) -> List[Dict]:
         """Enhanced table data extraction."""
         results = []
         
-        # More comprehensive table selectors
         table_selectors = [
             'table',
             '.results-table',
@@ -222,30 +149,28 @@ class ChipTimingScraper:
                 if len(rows) < 2:
                     continue
                 
-                # More flexible header detection
+                # Find header row
                 header_candidates = []
-                for i, row in enumerate(rows[:3]):  # Check first 3 rows
+                for i, row in enumerate(rows[:3]):
                     cells = row.find_all(['th', 'td'])
                     cell_texts = [cell.get_text(strip=True).lower() for cell in cells]
                     
-                    # Score potential headers
                     header_score = sum(1 for text in cell_texts 
                                      if any(keyword in text for keyword in 
                                            ['name', 'time', 'position', 'place', 'bib', 'number', 'category', 'club']))
                     
-                    if header_score >= 2:  # Need at least 2 relevant columns
+                    if header_score >= 2:
                         header_candidates.append((i, row, header_score))
                 
                 if not header_candidates:
                     continue
                 
-                # Use best header row
                 header_idx, header_row, _ = max(header_candidates, key=lambda x: x[2])
                 headers = [cell.get_text(strip=True) for cell in header_row.find_all(['th', 'td'])]
                 
                 logger.info(f"Found table with headers: {headers}")
                 
-                # Extract data rows (skip header and any rows before it)
+                # Extract data rows
                 for row in rows[header_idx + 1:]:
                     cells = row.find_all(['td', 'th'])
                     if len(cells) < len(headers):
@@ -262,42 +187,39 @@ class ChipTimingScraper:
         
         return results
     
-    def extract_structured_data(self, soup: BeautifulSoup) -> List[Dict]:
-        """Extract structured data from JSON-LD or other formats."""
-        results = []
-        
-        # Look for JSON-LD structured data
-        json_scripts = soup.find_all('script', type='application/ld+json')
-        for script in json_scripts:
-            try:
-                data = json.loads(script.string)
-                if isinstance(data, dict) and 'sportingEvent' in str(data):
-                    # Process sporting event data
-                    pass
-            except json.JSONDecodeError:
-                continue
-        
-        return results
-    
     def _clean_text(self, text: str) -> str:
         """Enhanced text cleaning."""
         if not text:
             return ""
         
-        # Remove common artifacts
         text = re.sub(r'\s+', ' ', text.strip())
-        text = re.sub(r'[^\w\s:.-]', '', text)  # Keep basic punctuation
+        text = re.sub(r'[^\w\s:.-]', '', text)
         return text
+    
+    def _is_valid_result_row(self, row_data: Dict) -> bool:
+        """Enhanced validation for result rows."""
+        if not row_data:
+            return False
+        
+        keys_lower = [k.lower() for k in row_data.keys()]
+        values = list(row_data.values())
+        
+        has_identifier = any(keyword in ' '.join(keys_lower) 
+                           for keyword in ['name', 'bib', 'number', 'runner', 'participant'])
+        has_result = any(keyword in ' '.join(keys_lower) 
+                        for keyword in ['time', 'position', 'place', 'rank'])
+        has_time_format = any(re.match(r'\d{1,2}:\d{2}(:\d{2})?', str(v)) for v in values)
+        has_content = len([v for v in values if v and str(v).strip()]) >= 2
+        
+        return has_content and (has_identifier or has_result or has_time_format)
     
     def _get_total_pages(self, soup: BeautifulSoup) -> int:
         """Extract total number of pages from pagination info."""
-        # Look for "Page X of Y" pattern
         page_text = soup.get_text()
         page_match = re.search(r'Page\s+\d+\s+of\s+(\d+)', page_text, re.IGNORECASE)
         if page_match:
             return int(page_match.group(1))
         
-        # Look for pagination links
         pagination_links = soup.find_all('a', href=True)
         page_numbers = []
         
@@ -305,7 +227,6 @@ class ChipTimingScraper:
             href = link.get('href', '')
             text = link.get_text(strip=True)
             
-            # Extract page numbers from href or text
             page_match = re.search(r'page[=:](\d+)', href)
             if page_match:
                 page_numbers.append(int(page_match.group(1)))
@@ -314,36 +235,144 @@ class ChipTimingScraper:
         
         return max(page_numbers) if page_numbers else 1
     
-    def _is_valid_result_row(self, row_data: Dict) -> bool:
-        """Enhanced validation for result rows."""
-        if not row_data:
-            return False
+    def _handle_pagination_from_page_2(self, initial_soup: BeautifulSoup, max_pages: int) -> List[Dict]:
+        """Handle pagination starting from page 2."""
+        if max_pages <= 1:
+            return []
+            
+        if self.use_selenium:
+            return self._paginate_with_selenium_from_page_2(max_pages)
+        else:
+            return self._paginate_with_requests_from_page_2(max_pages)
+    
+    def _paginate_with_selenium_from_page_2(self, max_pages: int) -> List[Dict]:
+        """Handle pagination using Selenium starting from page 2."""
+        driver = self.setup_driver()
+        if not driver:
+            return []
         
-        # Convert keys to lowercase for checking
-        keys_lower = [k.lower() for k in row_data.keys()]
-        values = list(row_data.values())
+        all_results = []
         
-        # Must have some identifying information
-        has_identifier = any(keyword in ' '.join(keys_lower) 
-                           for keyword in ['name', 'bib', 'number', 'runner', 'participant'])
+        try:
+            driver.get(self.base_url)
+            
+            for page_num in range(2, max_pages + 1):
+                logger.info(f"Scraping page {page_num}/{max_pages}")
+                
+                # Navigate to next page
+                next_clicked = False
+                
+                next_selectors = [
+                    "a[title='Next Page']",
+                    "button:contains('NXT')",
+                    "a:contains('NXT')", 
+                    "a:contains('Next')",
+                    "a:contains('→')",
+                    ".pagination a:last-child"
+                ]
+                
+                for selector in next_selectors:
+                    try:
+                        if ":contains(" in selector:
+                            links = driver.find_elements(By.TAG_NAME, "a")
+                            buttons = driver.find_elements(By.TAG_NAME, "button")
+                            elements = links + buttons
+                            
+                            search_text = selector.split("'")[1]
+                            for element in elements:
+                                if search_text.lower() in element.text.lower():
+                                    driver.execute_script("arguments[0].click();", element)
+                                    next_clicked = True
+                                    break
+                        else:
+                            next_button = driver.find_element(By.CSS_SELECTOR, selector)
+                            driver.execute_script("arguments[0].click();", next_button)
+                            next_clicked = True
+                        
+                        if next_clicked:
+                            break
+                            
+                    except Exception as e:
+                        logger.debug(f"Selector {selector} failed: {e}")
+                        continue
+                
+                if not next_clicked:
+                    logger.warning(f"Could not navigate to page {page_num}")
+                    break
+                
+                # Wait for content to load
+                time.sleep(self.delay)
+                try:
+                    WebDriverWait(driver, 10).until(
+                        EC.presence_of_element_located((By.TAG_NAME, "table"))
+                    )
+                except TimeoutException:
+                    logger.warning(f"Timeout waiting for page {page_num}")
+                    time.sleep(2)
+                
+                # Extract data
+                page_soup = BeautifulSoup(driver.page_source, 'html.parser')
+                page_results = self.extract_table_data(page_soup)
+                
+                if page_results:
+                    logger.info(f"Found {len(page_results)} results on page {page_num}")
+                    all_results.extend(page_results)
+                else:
+                    logger.warning(f"No results found on page {page_num}")
+                
+                # Progress update
+                if page_num % 10 == 0:
+                    logger.info(f"Progress: {page_num}/{max_pages} pages, {len(all_results)} total results")
         
-        # Must have some result information
-        has_result = any(keyword in ' '.join(keys_lower) 
-                        for keyword in ['time', 'position', 'place', 'rank'])
+        except Exception as e:
+            logger.error(f"Error during pagination: {e}")
         
-        # Check for time format in values
-        has_time_format = any(re.match(r'\d{1,2}:\d{2}(:\d{2})?', str(v)) for v in values)
+        finally:
+            driver.quit()
         
-        # Must have at least 2 non-empty values
-        has_content = len([v for v in values if v and str(v).strip()]) >= 2
+        return all_results
+    
+    def _paginate_with_requests_from_page_2(self, max_pages: int) -> List[Dict]:
+        """Handle pagination using requests starting from page 2."""
+        all_results = []
         
-        return has_content and (has_identifier or has_result or has_time_format)
+        for page_num in range(2, max_pages + 1):
+            logger.info(f"Scraping page {page_num}/{max_pages}")
+            
+            url_patterns = [
+                f"{self.base_url}?page={page_num}",
+                f"{self.base_url}&page={page_num}",
+                f"{self.base_url}/page/{page_num}",
+                f"{self.base_url}?p={page_num}",
+            ]
+            
+            page_results = []
+            for url_pattern in url_patterns:
+                soup = self.fetch_page_requests(url_pattern)
+                if soup:
+                    page_results = self.extract_table_data(soup)
+                    if page_results:
+                        break
+            
+            if page_results:
+                logger.info(f"Found {len(page_results)} results on page {page_num}")
+                all_results.extend(page_results)
+            else:
+                logger.warning(f"No results found on page {page_num}")
+                if page_num > 10:
+                    break
+            
+            time.sleep(self.delay)
+            
+            if page_num % 10 == 0:
+                logger.info(f"Progress: {page_num}/{max_pages} pages, {len(all_results)} total results")
+        
+        return all_results
     
     def scrape_results(self, max_pages: Optional[int] = None) -> List[Dict]:
         """Enhanced main scraping method with comprehensive pagination."""
         logger.info(f"Scraping results from {self.base_url}")
         
-        # Try Selenium first if available
         if self.use_selenium:
             logger.info("Using Selenium for JavaScript content")
             soup = self.fetch_page_selenium(self.base_url)
@@ -356,13 +385,13 @@ class ChipTimingScraper:
         
         results = []
         
-        # First, get results from the initial page
+        # Get results from initial page
         initial_results = self.extract_table_data(soup)
         if initial_results:
             logger.info(f"Found {len(initial_results)} results on initial page")
             results.extend(initial_results)
         
-        # Check if there are multiple pages
+        # Check for multiple pages
         total_pages = self._get_total_pages(soup)
         
         if total_pages > 1:
@@ -372,44 +401,21 @@ class ChipTimingScraper:
             
             logger.info(f"Detected {total_pages} pages. Starting comprehensive pagination...")
             
-            # Handle pagination starting from page 2 (since we already got page 1)
+            # Handle pagination starting from page 2
             if total_pages > 1:
                 paginated_results = self._handle_pagination_from_page_2(soup, total_pages)
                 results.extend(paginated_results)
-        
-        # Try other extraction methods if still no results
-        if not results:
-            extraction_methods = [
-                ("structured data", self.extract_structured_data),
-            ]
-            
-            for method_name, method in extraction_methods:
-                logger.info(f"Trying {method_name}")
-                method_results = method(soup)
-                if method_results:
-                    logger.info(f"Found {len(method_results)} results using {method_name}")
-                    results.extend(method_results)
-        
-        # Try API endpoints as last resort
-        if not results:
-            logger.info("Trying to discover API endpoints")
-            endpoints = self.discover_api_endpoints(soup)
-            if endpoints:
-                api_results = self.try_api_endpoints(endpoints)
-                results.extend(api_results)
         
         # Remove duplicates
         if results:
             seen = set()
             unique_results = []
             for result in results:
-                # Create a key from important fields to detect duplicates
                 key_fields = ['name', 'bib_number', 'finish_time', 'position']
                 key_values = []
                 
                 for field in key_fields:
                     value = None
-                    # Try different possible column names
                     for col in result.keys():
                         if field in col.lower() or col.lower() in field:
                             value = result[col]
@@ -466,7 +472,6 @@ class ChipTimingScraper:
         """Enhanced column name standardization."""
         name = str(name).lower().strip()
         
-        # Common standardizations
         mappings = {
             'pos': 'position',
             'place': 'position', 
@@ -489,10 +494,7 @@ class ChipTimingScraper:
             'team': 'club'
         }
         
-        # Apply mappings
         standardized = mappings.get(name, name)
-        
-        # Clean up the name
         standardized = re.sub(r'[^\w\s]', '', standardized)
         standardized = re.sub(r'\s+', '_', standardized)
         
